@@ -492,21 +492,30 @@ public final class MediaDetector {
                     return $script:mgr.GetCurrentSession()
                 }
                 function Save-Art($props, $key) {
-                    if ($null -eq $props.Thumbnail) { return '' }
+                    if ($null -eq $props.Thumbnail) {
+                        [System.IO.File]::AppendAllText((Join-Path $tmp 'nowplayingsys_media.log'),
+                            ('Media session supplied no album art for: ' + $key + [Environment]::NewLine))
+                        return ''
+                    }
                     if ($key -eq $script:lastKey) { return $script:lastArt }
                     $script:lastKey = $key
                     $script:lastArt = ''
                     try {
                         $stream = Await ($props.Thumbnail.OpenReadAsync()) $streamType
-                        $net = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream)
+                        $asStream = [System.IO.WindowsRuntimeStreamExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsStreamForRead' -and $_.GetParameters().Count -eq 1 } | Select-Object -First 1
+                        $net = $asStream.Invoke($null, [object[]]@($stream))
                         $script:seq++
                         $file = Join-Path $tmp ('nowplayingsys_art_' + $PID + '_' + $script:seq + '.img')
                         $fs = [System.IO.File]::Create($file)
-                        try { $net.CopyTo($fs) } finally { $fs.Dispose(); $net.Dispose(); $stream.Dispose() }
+                        try { $net.CopyTo($fs) } finally { $fs.Dispose(); $net.Dispose() }
                         $old = Join-Path $tmp ('nowplayingsys_art_' + $PID + '_' + ($script:seq - 2) + '.img')
                         if (Test-Path $old) { Remove-Item $old -ErrorAction SilentlyContinue }
                         $script:lastArt = ([System.Uri]$file).AbsoluteUri
-                    } catch { $script:lastArt = '' }
+                    } catch {
+                        [System.IO.File]::AppendAllText((Join-Path $tmp 'nowplayingsys_media.log'),
+                            ('Album art extraction failed: ' + $_.Exception.ToString() + [Environment]::NewLine))
+                        $script:lastArt = ''
+                    }
                     return $script:lastArt
                 }
                 function Poll {
