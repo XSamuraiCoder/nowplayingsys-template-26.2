@@ -1,28 +1,23 @@
 package com.nowplaying.gui;
 
-import com.daqem.uilib.gui.AbstractScreen;
-import com.daqem.uilib.gui.background.DarkenedBackground;
-import com.daqem.uilib.gui.component.AbstractComponent;
-import com.daqem.uilib.gui.component.color.ColorComponent;
-import com.daqem.uilib.gui.component.text.TextAlign;
-import com.daqem.uilib.gui.component.text.TruncatedTextComponent;
-import com.daqem.uilib.gui.widget.ButtonWidget;
 import com.mojang.blaze3d.platform.NativeImage;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
 import com.nowplaying.MediaDetector;
 import com.nowplaying.MediaDetector.MediaMetadata;
 import com.nowplaying.NowPlayingSys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,7 +30,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class NowPlayingScreen extends AbstractScreen {
+public class NowPlayingScreen extends Screen {
     private static final int PANEL_WIDTH = 392;
     private static final int PANEL_HEIGHT = 228;
     private static final int PANEL_INSET = 8;
@@ -53,19 +48,11 @@ public class NowPlayingScreen extends AbstractScreen {
         return thread;
     });
 
-    private TruncatedTextComponent titleText;
-    private TruncatedTextComponent artistText;
-    private TruncatedTextComponent sourceText;
-    private TruncatedTextComponent statusText;
-    private AlbumArtComponent albumArtComponent;
-    private ColorComponent progressFill;
-    private ButtonWidget prevButton;
-    private ButtonWidget playPauseButton;
-    private ButtonWidget nextButton;
-
-    /** Last snapshot applied to the widgets; compared by identity so we only touch the UI when it changes. */
+    private Button prevButton;
+    private Button playPauseButton;
+    private Button nextButton;
+    /** Last media snapshot applied to the controls; compared by identity to avoid redundant updates. */
     private MediaMetadata shown;
-    private int shownFillWidth = -1;
 
     // Album art state. Only one load runs at a time and the latest wanted URL wins, so superseded
     // results are closed instead of leaking, and a failing URL is not retried every poll.
@@ -75,101 +62,33 @@ public class NowPlayingScreen extends AbstractScreen {
     private String inFlightArtUrl = "";
     private CompletableFuture<AlbumArtPayload> albumArtFuture;
     private Identifier dynamicArtTextureId;
+    private int artWidth = ALBUM_SIZE;
+    private int artHeight = ALBUM_SIZE;
 
     private record AlbumArtPayload(String sourceUrl, NativeImage image, int width, int height) {
     }
 
     public NowPlayingScreen() {
         super(Component.literal("Now Playing"));
-        this.setBackground(new DarkenedBackground());
     }
 
     @Override
-    public void init() {
-        this.clear();
+    protected void init() {
         MediaDetector.start();
-
         int panelX = (this.width - PANEL_WIDTH) / 2;
         int panelY = (this.height - PANEL_HEIGHT) / 2;
         int rightPaneX = panelX + 184;
-
-        ColorComponent panel = new ColorComponent(panelX, panelY, PANEL_WIDTH, PANEL_HEIGHT, 0xFF131A27);
-        ColorComponent panelInner = new ColorComponent(panelX + PANEL_INSET, panelY + PANEL_INSET,
-                PANEL_WIDTH - PANEL_INSET * 2, PANEL_HEIGHT - PANEL_INSET * 2, 0xFF1C2C43);
-        ColorComponent leftColumn = new ColorComponent(panelX + 16, panelY + 16, 160, PANEL_HEIGHT - 32, 0xCC101B2A);
-        ColorComponent rightColumn = new ColorComponent(panelX + 184, panelY + 16, 192, PANEL_HEIGHT - 32, 0xCC0F1826);
-        ColorComponent divider = new ColorComponent(panelX + 180, panelY + 20, 1, PANEL_HEIGHT - 40, 0xFF2F4361);
-        ColorComponent artFrame = new ColorComponent(panelX + 24, panelY + 24, ALBUM_SIZE, ALBUM_SIZE, 0xFF2A3F5E);
-
-        // init() also runs on window resize; keep showing the loaded art instead of dropping to the fallback.
-        albumArtComponent = new AlbumArtComponent(panelX + 24, panelY + 24, ALBUM_SIZE, ALBUM_SIZE,
-                dynamicArtTextureId != null ? dynamicArtTextureId : FALLBACK_ALBUM_ART, ALBUM_SIZE, ALBUM_SIZE);
-
-        titleText = new TruncatedTextComponent(rightPaneX + 8, panelY + 28, 176, Component.literal(""), 0xFFF1F7FF);
-        titleText.setDrawShadow(true);
-        titleText.setTextAlign(TextAlign.LEFT);
-
-        artistText = new TruncatedTextComponent(rightPaneX + 8, panelY + 48, 176, Component.literal(""), 0xFFB6C3D6);
-        artistText.setTextAlign(TextAlign.LEFT);
-
-        sourceText = new TruncatedTextComponent(rightPaneX + 8, panelY + 72, 176, Component.literal(""), 0xFF8FA8C8);
-        sourceText.setTextAlign(TextAlign.LEFT);
-
-        statusText = new TruncatedTextComponent(rightPaneX + 8, panelY + 92, 176, Component.literal(""), 0xFF93A1B5);
-        statusText.setTextAlign(TextAlign.LEFT);
-
-        ColorComponent progressTrack = new ColorComponent(rightPaneX + 8, panelY + 122, PROGRESS_WIDTH, PROGRESS_HEIGHT, 0xFF1A3557);
-        progressFill = new ColorComponent(rightPaneX + 8, panelY + 122, 0, PROGRESS_HEIGHT, 0xFF57A6FF);
-
-        String labelText = "Now Playing";
-        int labelWidth = Minecraft.getInstance().font.width(labelText);
-        TruncatedTextComponent nowPlayingLabel = new TruncatedTextComponent(
-                panelX + 24 + (ALBUM_SIZE - labelWidth) / 2, panelY + 176, labelWidth + 4,
-                Component.literal(labelText), 0xFFD9E6F7);
-        nowPlayingLabel.setTextAlign(TextAlign.LEFT);
-
-        prevButton = new ButtonWidget(rightPaneX + 8, panelY + 156, 56, 20, Component.literal("Prev"),
-                button -> MediaDetector.sendCommand("Previous"));
-        prevButton.setTooltip(Tooltip.create(Component.literal("Previous Track")));
-
-        playPauseButton = new ButtonWidget(rightPaneX + 70, panelY + 156, 56, 20, Component.literal("Play"),
-                button -> MediaDetector.sendCommand("PlayPause"));
-        playPauseButton.setTooltip(Tooltip.create(Component.literal("Play / Pause")));
-
-        nextButton = new ButtonWidget(rightPaneX + 132, panelY + 156, 56, 20, Component.literal("Next"),
-                button -> MediaDetector.sendCommand("Next"));
-        nextButton.setTooltip(Tooltip.create(Component.literal("Next Track")));
-
-        ButtonWidget refreshButton = new ButtonWidget(rightPaneX + 8, panelY + 182, 180, 20,
-                Component.literal("Refresh Metadata"), button -> MediaDetector.refreshAsync());
-        refreshButton.setTooltip(Tooltip.create(Component.literal("Force a fresh metadata + album art fetch")));
-
-        this.addComponent(panel);
-        this.addComponent(panelInner);
-        this.addComponent(leftColumn);
-        this.addComponent(rightColumn);
-        this.addComponent(divider);
-        this.addComponent(artFrame);
-        this.addComponent(albumArtComponent);
-        this.addComponent(nowPlayingLabel);
-        this.addComponent(titleText);
-        this.addComponent(artistText);
-        this.addComponent(sourceText);
-        this.addComponent(statusText);
-        this.addComponent(progressTrack);
-        this.addComponent(progressFill);
-
-        this.addWidget(prevButton);
-        this.addWidget(playPauseButton);
-        this.addWidget(nextButton);
-        this.addWidget(refreshButton);
-
-        // Widgets were just rebuilt, so force a full re-apply of the current snapshot.
+        prevButton = addRenderableWidget(Button.builder(Component.literal("Prev"), b -> MediaDetector.sendCommand("Previous"))
+                .bounds(rightPaneX + 8, panelY + 156, 56, 20).tooltip(Tooltip.create(Component.literal("Previous Track"))).build());
+        playPauseButton = addRenderableWidget(Button.builder(Component.literal("Play"), b -> MediaDetector.sendCommand("PlayPause"))
+                .bounds(rightPaneX + 70, panelY + 156, 56, 20).tooltip(Tooltip.create(Component.literal("Play / Pause"))).build());
+        nextButton = addRenderableWidget(Button.builder(Component.literal("Next"), b -> MediaDetector.sendCommand("Next"))
+                .bounds(rightPaneX + 132, panelY + 156, 56, 20).tooltip(Tooltip.create(Component.literal("Next Track"))).build());
+        addRenderableWidget(Button.builder(Component.literal("Refresh Metadata"), b -> MediaDetector.refreshAsync())
+                .bounds(rightPaneX + 8, panelY + 182, 180, 20)
+                .tooltip(Tooltip.create(Component.literal("Force a fresh metadata + album art fetch"))).build());
         shown = null;
-        shownFillWidth = -1;
         refreshFromSnapshot();
-
-        super.init();
     }
 
     @Override
@@ -179,22 +98,59 @@ public class NowPlayingScreen extends AbstractScreen {
         pollAlbumArt();
     }
 
-    /** Applies text/controls only when the snapshot changed; progress is extrapolated every tick. */
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        int x = (width - PANEL_WIDTH) / 2;
+        int y = (height - PANEL_HEIGHT) / 2;
+        graphics.fill(x, y, x + PANEL_WIDTH, y + PANEL_HEIGHT, 0xFF131A27);
+        graphics.fill(x + PANEL_INSET, y + PANEL_INSET, x + PANEL_WIDTH - PANEL_INSET, y + PANEL_HEIGHT - PANEL_INSET, 0xFF1C2C43);
+        graphics.fill(x + 16, y + 16, x + 176, y + PANEL_HEIGHT - 16, 0xCC101B2A);
+        graphics.fill(x + 184, y + 16, x + 376, y + PANEL_HEIGHT - 16, 0xCC0F1826);
+        graphics.fill(x + 180, y + 20, x + 181, y + PANEL_HEIGHT - 20, 0xFF2F4361);
+        graphics.fill(x + 24, y + 24, x + 24 + ALBUM_SIZE, y + 24 + ALBUM_SIZE, 0xFF2A3F5E);
+        Identifier art = dynamicArtTextureId == null ? FALLBACK_ALBUM_ART : dynamicArtTextureId;
+        float aspect = (float) artWidth / artHeight;
+        int drawWidth = ALBUM_SIZE;
+        int drawHeight = ALBUM_SIZE;
+        if (aspect > 1.0f) {
+            drawHeight = Math.max(1, Math.round(ALBUM_SIZE / aspect));
+        } else {
+            drawWidth = Math.max(1, Math.round(ALBUM_SIZE * aspect));
+        }
+        int artX = x + 24 + (ALBUM_SIZE - drawWidth) / 2;
+        int artY = y + 24 + (ALBUM_SIZE - drawHeight) / 2;
+        graphics.blit(RenderPipelines.GUI_TEXTURED, art, artX, artY, 0, 0, drawWidth, drawHeight,
+                artWidth, artHeight, artWidth, artHeight);
+        graphics.centeredText(font, "Now Playing", x + 24 + ALBUM_SIZE / 2, y + 176, 0xFFD9E6F7);
+
+        MediaMetadata m = shown;
+        boolean hasTrack = m != null && m.hasTrack();
+        String title = hasTrack ? fit(m.title()) : "No media detected";
+        String artist = hasTrack ? fit(m.artist() == null || m.artist().isBlank() ? "Unknown Artist" : m.artist()) : "Open a player to begin";
+        String source = hasTrack ? fit("Source: " + m.source()) : "Source: None";
+        String status = hasTrack ? fit("Status: " + statusLabel(m.state())) : "Status: Idle";
+        graphics.text(font, title, x + 200, y + 28, 0xFFF1F7FF, true);
+        graphics.text(font, artist, x + 200, y + 48, 0xFFB6C3D6);
+        graphics.text(font, source, x + 200, y + 72, 0xFF8FA8C8);
+        graphics.text(font, status, x + 200, y + 92, 0xFF93A1B5);
+        graphics.fill(x + 192, y + 122, x + 192 + PROGRESS_WIDTH, y + 122 + PROGRESS_HEIGHT, 0xFF1A3557);
+        float progress = hasTrack && m.hasTimeline() ? m.progress() : 0f;
+        int progressWidth = Math.clamp(Math.round(PROGRESS_WIDTH * progress), 0, PROGRESS_WIDTH);
+        graphics.fill(x + 192, y + 122, x + 192 + progressWidth, y + 122 + PROGRESS_HEIGHT, 0xFF57A6FF);
+        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+    }
+
+    /** Applies control changes only when the media snapshot changes. */
     private void refreshFromSnapshot() {
         MediaMetadata snapshot = MediaDetector.getCurrentlyPlayingMetadata();
         if (snapshot != shown) {
             shown = snapshot;
             applyMetadata(snapshot);
         }
-        updateProgress(snapshot);
     }
 
     private void applyMetadata(MediaMetadata metadata) {
         if (!metadata.hasTrack()) {
-            titleText.setText(Component.literal(fit("No media detected")));
-            artistText.setText(Component.literal(fit("Open a player to begin")));
-            sourceText.setText(Component.literal("Source: None"));
-            statusText.setText(Component.literal("Status: Idle"));
             playPauseButton.setMessage(Component.literal("Play"));
             setControlsEnabled(false);
             wantedArtUrl = "";
@@ -202,11 +158,6 @@ public class NowPlayingScreen extends AbstractScreen {
             return;
         }
 
-        titleText.setText(Component.literal(fit(metadata.title())));
-        String artist = metadata.artist();
-        artistText.setText(Component.literal(fit(artist == null || artist.isBlank() ? "Unknown Artist" : artist)));
-        sourceText.setText(Component.literal(fit("Source: " + metadata.source())));
-        statusText.setText(Component.literal(fit("Status: " + statusLabel(metadata.state()))));
         playPauseButton.setMessage(Component.literal(metadata.isPlaying() ? "Pause" : "Play"));
         setControlsEnabled(MediaDetector.canControl());
 
@@ -235,15 +186,6 @@ public class NowPlayingScreen extends AbstractScreen {
             case STOPPED -> "Stopped";
             case UNKNOWN -> "Active";
         };
-    }
-
-    private void updateProgress(MediaMetadata metadata) {
-        float progress = metadata.hasTrack() && metadata.hasTimeline() ? metadata.progress() : 0f;
-        int width = Math.clamp(Math.round(PROGRESS_WIDTH * progress), 0, PROGRESS_WIDTH);
-        if (width != shownFillWidth) {
-            shownFillWidth = width;
-            progressFill.setWidth(width);
-        }
     }
 
     // ------------------------------------------------------------------ album art
@@ -314,8 +256,11 @@ public class NowPlayingScreen extends AbstractScreen {
                 if (original == null) {
                     throw new IOException("Failed to decode image");
                 }
-                BufferedImage thumbnail = createSquareThumbnail(original, ALBUM_SIZE);
-                return new AlbumArtPayload(artUrl, toNativeImage(thumbnail), ALBUM_SIZE, ALBUM_SIZE);
+                try {
+                    return new AlbumArtPayload(artUrl, toNativeImage(original), original.getWidth(), original.getHeight());
+                } finally {
+                    original.flush();
+                }
             }
         } catch (IOException | IllegalArgumentException e) {
             throw new CompletionException(e);
@@ -348,32 +293,6 @@ public class NowPlayingScreen extends AbstractScreen {
         }
     }
 
-    /** Center-crops to a square (so non-square art isn't stretched), then downscales in steps for quality. */
-    private static BufferedImage createSquareThumbnail(BufferedImage source, int size) {
-        int side = Math.min(source.getWidth(), source.getHeight());
-        BufferedImage current = source.getSubimage(
-                (source.getWidth() - side) / 2, (source.getHeight() - side) / 2, side, side);
-
-        int w = side;
-        while (w > size * 2) {
-            w /= 2;
-            BufferedImage scratch = new BufferedImage(w, w, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g = scratch.createGraphics();
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(current, 0, 0, w, w, null);
-            g.dispose();
-            current = scratch;
-        }
-
-        BufferedImage result = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = result.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        g.drawImage(current, 0, 0, size, size, null);
-        g.dispose();
-        return result;
-    }
-
     private void applyAlbumArt(AlbumArtPayload payload) {
         Minecraft client = Minecraft.getInstance();
         releaseDynamicAlbumArt();
@@ -381,19 +300,19 @@ public class NowPlayingScreen extends AbstractScreen {
         Identifier textureId = Identifier.fromNamespaceAndPath(NowPlayingSys.MOD_ID,
                 "dynamic/album_art_" + Integer.toUnsignedString(payload.sourceUrl().hashCode()));
         client.getTextureManager().register(textureId,
-                new DynamicTexture(() -> "NowPlayingAlbumArt", payload.image()));
+                new LinearDynamicTexture(payload.image()));
 
         dynamicArtTextureId = textureId;
+        artWidth = payload.width();
+        artHeight = payload.height();
         appliedArtUrl = payload.sourceUrl();
-        albumArtComponent.setTexture(textureId, payload.width(), payload.height());
     }
 
     private void setFallbackAlbumArt() {
         releaseDynamicAlbumArt();
         appliedArtUrl = "";
-        if (albumArtComponent != null) {
-            albumArtComponent.setTexture(FALLBACK_ALBUM_ART, ALBUM_SIZE, ALBUM_SIZE);
-        }
+        artWidth = ALBUM_SIZE;
+        artHeight = ALBUM_SIZE;
     }
 
     /** Releasing through the TextureManager closes the texture (and its image) as well. */
@@ -407,9 +326,9 @@ public class NowPlayingScreen extends AbstractScreen {
     // ------------------------------------------------------------------ screen plumbing
 
     private void setControlsEnabled(boolean enabled) {
-        prevButton.active = enabled;
-        playPauseButton.active = enabled;
-        nextButton.active = enabled;
+        if (prevButton != null) prevButton.active = enabled;
+        if (playPauseButton != null) playPauseButton.active = enabled;
+        if (nextButton != null) nextButton.active = enabled;
     }
 
     @Override
@@ -426,51 +345,12 @@ public class NowPlayingScreen extends AbstractScreen {
         return false;
     }
 
-    private static class AlbumArtComponent extends AbstractComponent {
-        private Identifier texture;
-        private int sourceWidth;
-        private int sourceHeight;
-
-        AlbumArtComponent(int x, int y, int width, int height, Identifier texture, int sourceWidth, int sourceHeight) {
-            super(x, y, width, height);
-            setTexture(texture, sourceWidth, sourceHeight);
-        }
-
-        void setTexture(Identifier texture, int sourceWidth, int sourceHeight) {
-            this.texture = texture;
-            this.sourceWidth = Math.max(1, sourceWidth);
-            this.sourceHeight = Math.max(1, sourceHeight);
-        }
-
-        @Override
-        public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick,
-                                       int parentWidth, int parentHeight) {
-            int x = this.getTotalX();
-            int y = this.getTotalY();
-            int width = this.getWidth();
-            int height = this.getHeight();
-
-            graphics.fill(x, y, x + width, y + height, 0xFF121A28);
-            if (texture == null) {
-                return;
-            }
-
-            // Fit inside the component, preserving the source aspect ratio.
-            float sourceAspect = (float) sourceWidth / (float) sourceHeight;
-            float targetAspect = (float) width / (float) height;
-            int drawWidth = width;
-            int drawHeight = height;
-            if (sourceAspect > targetAspect) {
-                drawHeight = Math.max(1, Math.round(width / sourceAspect));
-            } else {
-                drawWidth = Math.max(1, Math.round(height * sourceAspect));
-            }
-            int drawX = x + (width - drawWidth) / 2;
-            int drawY = y + (height - drawHeight) / 2;
-
-            // 26.2 10-argument overload: texture size == draw size, so the whole texture is scaled to fit.
-            graphics.blit(RenderPipelines.GUI_TEXTURED, texture, drawX, drawY, 0.0f, 0.0f, drawWidth, drawHeight,
-                    drawWidth, drawHeight);
+    /** DynamicTexture defaults to nearest-neighbor sampling; album art benefits from linear filtering. */
+    private static final class LinearDynamicTexture extends DynamicTexture {
+        private LinearDynamicTexture(NativeImage image) {
+            super(() -> "NowPlayingAlbumArt", image);
+            this.sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         }
     }
+
 }
