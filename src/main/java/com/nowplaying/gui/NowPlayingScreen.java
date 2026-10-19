@@ -2,7 +2,7 @@ package com.nowplaying.gui;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.FilterMode;
 import com.nowplaying.MediaDetector;
 import com.nowplaying.MediaDetector.MediaMetadata;
 import com.nowplaying.NowPlayingSys;
