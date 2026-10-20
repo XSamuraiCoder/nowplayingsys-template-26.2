@@ -42,7 +42,7 @@ jobs:
           #   MC_RANGE = the dependency written into fabric.mod.json
           #   GV_RAW   = the game versions listed on Modrinth (comma separated)
           case "$MC" in
-            26.2) MC_RANGE='>=26.1 <26.3'; GV_RAW='26.1,26.1.1,26.1.2,26.2' ;;
+            26.2) MC_RANGE='~26.2';         GV_RAW='26.2' ;;
             26.3) MC_RANGE='~26.3';        GV_RAW='26.3' ;;
             *)    MC_RANGE="~$MC";         GV_RAW="$MC" ;;
           esac
@@ -180,8 +180,36 @@ jobs:
           echo "Publishing $JAR"
           echo "path=$JAR" >> "$GITHUB_OUTPUT"
 
+      - name: update existing Modrinth version metadata
+        id: existing
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          MODRINTH_PROJECT_ID: ${{ secrets.MODRINTH_PROJECT_ID }}
+          VERSION: ${{ needs.build.outputs.version }}
+          GAME_VERSIONS: ${{ needs.build.outputs.game_versions }}
+        run: |
+          versions=$(curl --fail --silent --show-error \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
+            "https://api.modrinth.com/v2/project/$MODRINTH_PROJECT_ID/version")
+          version_id=$(jq -r --arg version "$VERSION" \
+            '.[] | select(.version_number == $version) | .id' <<< "$versions" | head -n 1)
+          echo "id=$version_id" >> "$GITHUB_OUTPUT"
+          if [ -n "$version_id" ]; then
+            game_versions_json=$(printf '%s\n' "$GAME_VERSIONS" | jq -R . | jq -s .)
+            payload=$(jq -n --argjson game_versions "$game_versions_json" \
+              '{game_versions: $game_versions}')
+            curl --fail --silent --show-error -X PATCH \
+              -H "Authorization: $MODRINTH_TOKEN" \
+              -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.modrinth.com/v2/version/$version_id"
+          fi
+
       - name: publish to Modrinth
         uses: cloudnode-pro/modrinth-publish@v2
+        if: steps.existing.outputs.id == ''
         with:
           token: ${{ secrets.MODRINTH_TOKEN }}
           project: ${{ secrets.MODRINTH_PROJECT_ID }}
