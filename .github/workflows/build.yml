@@ -188,7 +188,7 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           GAME_VERSIONS: ${{ needs.build.outputs.game_versions }}
         run: |
-          versions=$(curl --fail --silent --show-error \
+          versions=$(curl --fail-with-body --silent --show-error \
             -H "Authorization: $MODRINTH_TOKEN" \
             -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
             "https://api.modrinth.com/v2/project/$MODRINTH_PROJECT_ID/version")
@@ -199,7 +199,7 @@ jobs:
             game_versions_json=$(printf '%s\n' "$GAME_VERSIONS" | jq -R . | jq -s .)
             payload=$(jq -n --argjson game_versions "$game_versions_json" \
               '{game_versions: $game_versions}')
-            curl --fail --silent --show-error -X PATCH \
+            curl --fail-with-body --silent --show-error -X PATCH \
               -H "Authorization: $MODRINTH_TOKEN" \
               -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
               -H "Content-Type: application/json" \
