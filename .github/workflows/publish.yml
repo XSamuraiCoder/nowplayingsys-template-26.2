@@ -1,36 +1,55 @@
-name: Publish Mod to Modrinth
+name: publish
 
 on:
-  release:
-    types: [published] # Triggers when you publish a new GitHub Release
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: checkout repository
+        uses: actions/checkout@v6
 
-      - name: Set up Java
+      - name: work out release version
+        id: meta
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          [[ "$VERSION" == *+* ]] || VERSION="$VERSION+1.20.1"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: setup jdk
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21' # Change to match your mod's Java version
+          java-version: '17'
+          distribution: 'microsoft'
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
+      - name: build mod
+        env:
+          MOD_VERSION: ${{ steps.meta.outputs.version }}
+        run: ./gradlew build -Pmod_version="$MOD_VERSION"
 
-      - name: Build mod JAR
-        run: ./gradlew build
+      - name: pick the mod jar
+        id: jar
+        run: |
+          JAR=$(find build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-dev.jar' | sort | head -n 1)
+          test -n "$JAR"
+          echo "Publishing $JAR"
+          echo "path=$JAR" >> "$GITHUB_OUTPUT"
 
-      - name: Publish to Modrinth
+      - name: publish to Modrinth
         uses: cloudnode-pro/modrinth-publish@v2
         with:
           token: ${{ secrets.MODRINTH_TOKEN }}
-          project: 'YOUR_MODRINTH_PROJECT_ID' # Replace with your Modrinth project ID
-          version: ${{ github.event.release.tag_name }}
-          loaders: |-
-            fabric # Change or add: fabric, forge, neoforge, quilt, etc.
-          game-versions: |-
-            1.20.4 # List supported Minecraft versions, one per line
-          files: 'build/libs/your-mod-filename-${{ github.event.release.tag_name }}.jar'
+          project: ${{ secrets.MODRINTH_PROJECT_ID }}
+          version: ${{ steps.meta.outputs.version }}
+          name: NowPlayingSys ${{ steps.meta.outputs.version }} for Minecraft 1.20.1
+          channel: release
+          loaders: fabric
+          game-versions: 1.20.1
+          dependencies: '[{"project_id":"P7dR8mSH","dependency_type":"required"}]'
+          files: ${{ steps.jar.outputs.path }}
