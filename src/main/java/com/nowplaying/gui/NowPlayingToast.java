@@ -3,7 +3,7 @@ package com.nowplaying.gui;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.components.toasts.SystemToast.SystemToastId;
-import net.minecraft.client.gui.components.toasts.ToastManager;
+import net.minecraft.client.gui.components.toasts.ToastComponent;
 import net.minecraft.network.chat.Component;
 
 import java.lang.reflect.Method;
@@ -16,27 +16,27 @@ public class NowPlayingToast {
             return;
         }
 
-        ToastManager toastManager = getToastManager(client);
-        if (toastManager == null) {
+        ToastComponent toastComponent = getToastComponent(client);
+        if (toastComponent == null) {
             return;
         }
 
         SystemToast.addOrUpdate(
-            toastManager,
+            toastComponent,
             TOAST_ID,
             Component.literal("Now Playing"),
             Component.literal(message)
         );
     }
 
-    private static ToastManager getToastManager(Minecraft client) {
+    private static ToastComponent getToastComponent(Minecraft client) {
         Object gui = client.gui;
         if (gui != null) {
             try {
-                Method toastManagerMethod = gui.getClass().getMethod("toastManager");
-                Object manager = toastManagerMethod.invoke(gui);
-                if (manager instanceof ToastManager tm) {
-                    return tm;
+                Method toastComponentMethod = gui.getClass().getMethod("getToastComponent");
+                Object component = toastComponentMethod.invoke(gui);
+                if (component instanceof ToastComponent tc) {
+                    return tc;
                 }
             } catch (ReflectiveOperationException ignored) {
                 // Fall back to older Minecraft accessor.
@@ -44,10 +44,10 @@ public class NowPlayingToast {
         }
 
         try {
-            Method getToastManagerMethod = client.getClass().getMethod("getToastManager");
-            Object manager = getToastManagerMethod.invoke(client);
-            if (manager instanceof ToastManager tm) {
-                return tm;
+            Method getToastsMethod = client.getClass().getMethod("getToasts");
+            Object component = getToastsMethod.invoke(client);
+            if (component instanceof ToastComponent tc) {
+                return tc;
             }
         } catch (ReflectiveOperationException ignored) {
             // No compatible toast manager accessor exists on this runtime.

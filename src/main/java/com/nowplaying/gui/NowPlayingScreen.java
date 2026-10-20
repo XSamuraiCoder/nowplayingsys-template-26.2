@@ -1,21 +1,18 @@
 package com.nowplaying.gui;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
 import com.nowplaying.MediaDetector;
 import com.nowplaying.MediaDetector.MediaMetadata;
 import com.nowplaying.NowPlayingSys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -40,8 +37,8 @@ public class NowPlayingScreen extends Screen {
     /** Right column is 192 wide and text starts 8 in; leave a margin on the right too (and 1px for the title shadow). */
     private static final int TEXT_MAX_WIDTH = 168;
 
-    private static final Identifier FALLBACK_ALBUM_ART =
-            Identifier.fromNamespaceAndPath(NowPlayingSys.MOD_ID, "textures/gui/album_art.png");
+    private static final ResourceLocation FALLBACK_ALBUM_ART =
+            ResourceLocation.fromNamespaceAndPath(NowPlayingSys.MOD_ID, "textures/gui/album_art.png");
     private static final ExecutorService ART_LOADER = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "NowPlaying-AlbumArtLoader");
         thread.setDaemon(true);
@@ -61,7 +58,7 @@ public class NowPlayingScreen extends Screen {
     private String failedArtUrl = "";
     private String inFlightArtUrl = "";
     private CompletableFuture<AlbumArtPayload> albumArtFuture;
-    private Identifier dynamicArtTextureId;
+    private ResourceLocation dynamicArtTextureId;
     private int artWidth = ALBUM_SIZE;
     private int artHeight = ALBUM_SIZE;
 
@@ -99,7 +96,13 @@ public class NowPlayingScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // The custom panel is rendered before super.render(), whose default background pass blurs it.
+        // Keep the already-rendered game/menu background and leave this screen's content crisp.
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         int x = (width - PANEL_WIDTH) / 2;
         int y = (height - PANEL_HEIGHT) / 2;
         graphics.fill(x, y, x + PANEL_WIDTH, y + PANEL_HEIGHT, 0xFF131A27);
@@ -108,7 +111,7 @@ public class NowPlayingScreen extends Screen {
         graphics.fill(x + 184, y + 16, x + 376, y + PANEL_HEIGHT - 16, 0xCC0F1826);
         graphics.fill(x + 180, y + 20, x + 181, y + PANEL_HEIGHT - 20, 0xFF2F4361);
         graphics.fill(x + 24, y + 24, x + 24 + ALBUM_SIZE, y + 24 + ALBUM_SIZE, 0xFF2A3F5E);
-        Identifier art = dynamicArtTextureId == null ? FALLBACK_ALBUM_ART : dynamicArtTextureId;
+        ResourceLocation art = dynamicArtTextureId == null ? FALLBACK_ALBUM_ART : dynamicArtTextureId;
         float aspect = (float) artWidth / artHeight;
         int drawWidth = ALBUM_SIZE;
         int drawHeight = ALBUM_SIZE;
@@ -119,9 +122,9 @@ public class NowPlayingScreen extends Screen {
         }
         int artX = x + 24 + (ALBUM_SIZE - drawWidth) / 2;
         int artY = y + 24 + (ALBUM_SIZE - drawHeight) / 2;
-        graphics.blit(RenderPipelines.GUI_TEXTURED, art, artX, artY, 0, 0, drawWidth, drawHeight,
-                artWidth, artHeight, artWidth, artHeight);
-        graphics.centeredText(font, "Now Playing", x + 24 + ALBUM_SIZE / 2, y + 176, 0xFFD9E6F7);
+        graphics.blit(art, artX, artY, drawWidth, drawHeight,
+                0, 0, artWidth, artHeight, artWidth, artHeight);
+        graphics.drawCenteredString(font, "Now Playing", x + 24 + ALBUM_SIZE / 2, y + 176, 0xFFD9E6F7);
 
         MediaMetadata m = shown;
         boolean hasTrack = m != null && m.hasTrack();
@@ -129,15 +132,15 @@ public class NowPlayingScreen extends Screen {
         String artist = hasTrack ? fit(m.artist() == null || m.artist().isBlank() ? "Unknown Artist" : m.artist()) : "Open a player to begin";
         String source = hasTrack ? fit("Source: " + m.source()) : "Source: None";
         String status = hasTrack ? fit("Status: " + statusLabel(m.state())) : "Status: Idle";
-        graphics.text(font, title, x + 200, y + 28, 0xFFF1F7FF, true);
-        graphics.text(font, artist, x + 200, y + 48, 0xFFB6C3D6);
-        graphics.text(font, source, x + 200, y + 72, 0xFF8FA8C8);
-        graphics.text(font, status, x + 200, y + 92, 0xFF93A1B5);
+        graphics.drawString(font, title, x + 200, y + 28, 0xFFF1F7FF, true);
+        graphics.drawString(font, artist, x + 200, y + 48, 0xFFB6C3D6);
+        graphics.drawString(font, source, x + 200, y + 72, 0xFF8FA8C8);
+        graphics.drawString(font, status, x + 200, y + 92, 0xFF93A1B5);
         graphics.fill(x + 192, y + 122, x + 192 + PROGRESS_WIDTH, y + 122 + PROGRESS_HEIGHT, 0xFF1A3557);
         float progress = hasTrack && m.hasTimeline() ? m.progress() : 0f;
         int progressWidth = Math.clamp(Math.round(PROGRESS_WIDTH * progress), 0, PROGRESS_WIDTH);
         graphics.fill(x + 192, y + 122, x + 192 + progressWidth, y + 122 + PROGRESS_HEIGHT, 0xFF57A6FF);
-        super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        super.render(graphics, mouseX, mouseY, partialTick);
     }
 
     /** Applies control changes only when the media snapshot changes. */
@@ -283,7 +286,7 @@ public class NowPlayingScreen extends Screen {
                     int r = (argb >> 16) & 0xFF;
                     int g = (argb >> 8) & 0xFF;
                     int b = argb & 0xFF;
-                    nativeImage.setPixelABGR(x, y, (a << 24) | (b << 16) | (g << 8) | r);
+                    nativeImage.setPixelRGBA(x, y, (a << 24) | (b << 16) | (g << 8) | r);
                 }
             }
             return nativeImage;
@@ -297,7 +300,7 @@ public class NowPlayingScreen extends Screen {
         Minecraft client = Minecraft.getInstance();
         releaseDynamicAlbumArt();
 
-        Identifier textureId = Identifier.fromNamespaceAndPath(NowPlayingSys.MOD_ID,
+        ResourceLocation textureId = ResourceLocation.fromNamespaceAndPath(NowPlayingSys.MOD_ID,
                 "dynamic/album_art_" + Integer.toUnsignedString(payload.sourceUrl().hashCode()));
         client.getTextureManager().register(textureId,
                 new LinearDynamicTexture(payload.image()));
@@ -348,8 +351,8 @@ public class NowPlayingScreen extends Screen {
     /** DynamicTexture defaults to nearest-neighbor sampling; album art benefits from linear filtering. */
     private static final class LinearDynamicTexture extends DynamicTexture {
         private LinearDynamicTexture(NativeImage image) {
-            super(() -> "NowPlayingAlbumArt", image);
-            this.sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
+            super(image);
+            setFilter(true, false);
         }
     }
 

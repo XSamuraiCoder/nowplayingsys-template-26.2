@@ -1,4 +1,6 @@
 {
+  "key.nowplayingsys.open_screen": "Open Now Playing screen",
+  "category.nowplayingsys.controls": "NowPlayingSys",
   "gui.nowplaying.nwplaign": "NOW PLAING",
   "gui.nowplaying.now_playing": "NOW PLAYING"
 }
