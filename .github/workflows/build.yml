@@ -188,10 +188,17 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           GAME_VERSIONS: ${{ needs.build.outputs.game_versions }}
         run: |
-          versions=$(curl --fail-with-body --silent --show-error \
+          response=$(curl --silent --show-error --write-out $'\n%{http_code}' \
             -H "Authorization: $MODRINTH_TOKEN" \
             -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
             "https://api.modrinth.com/v2/project/$MODRINTH_PROJECT_ID/version")
+          status="${response##*$'\n'}"
+          versions="${response%$'\n'*}"
+          if [[ ! "$status" =~ ^2 ]]; then
+            message=$(printf '%s' "$versions" | tr '\r\n' '  ')
+            echo "::error::Modrinth versions lookup returned HTTP $status: $message"
+            exit 1
+          fi
           version_id=$(jq -r --arg version "$VERSION" \
             '.[] | select(.version_number == $version) | .id' <<< "$versions" | head -n 1)
           echo "id=$version_id" >> "$GITHUB_OUTPUT"
@@ -199,12 +206,19 @@ jobs:
             game_versions_json=$(printf '%s\n' "$GAME_VERSIONS" | jq -R . | jq -s .)
             payload=$(jq -n --argjson game_versions "$game_versions_json" \
               '{game_versions: $game_versions}')
-            curl --fail-with-body --silent --show-error -X PATCH \
+            response=$(curl --silent --show-error --write-out $'\n%{http_code}' -X PATCH \
               -H "Authorization: $MODRINTH_TOKEN" \
               -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
               -H "Content-Type: application/json" \
               --data "$payload" \
-              "https://api.modrinth.com/v2/version/$version_id"
+              "https://api.modrinth.com/v2/version/$version_id")
+            status="${response##*$'\n'}"
+            message="${response%$'\n'*}"
+            if [[ ! "$status" =~ ^2 ]]; then
+              message=$(printf '%s' "$message" | tr '\r\n' '  ')
+              echo "::error::Modrinth version update returned HTTP $status: $message"
+              exit 1
+            fi
           fi
 
       - name: publish to Modrinth
