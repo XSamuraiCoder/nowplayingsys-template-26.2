@@ -89,7 +89,7 @@ public final class MediaDetector {
             if (isPlaying()) {
                 position += (System.nanoTime() - sampledAtNanos) / 1_000L;
             }
-            return Math.clamp((float) position / (float) lengthMicros, 0f, 1f);
+            return Math.max(0f, Math.min(1f, (float) position / (float) lengthMicros));
         }
     }
 
