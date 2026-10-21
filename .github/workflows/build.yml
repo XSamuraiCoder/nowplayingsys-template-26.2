@@ -189,7 +189,6 @@ jobs:
           GAME_VERSIONS: ${{ needs.build.outputs.game_versions }}
         run: |
           response=$(curl --silent --show-error --write-out $'\n%{http_code}' \
-            -H "Authorization: $MODRINTH_TOKEN" \
             -H "User-Agent: $GITHUB_REPOSITORY/NowPlayingSys" \
             "https://api.modrinth.com/v2/project/$MODRINTH_PROJECT_ID/version")
           status="${response##*$'\n'}"
